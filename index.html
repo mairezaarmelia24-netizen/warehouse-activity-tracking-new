@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17365d">
+  <title>Warehouse Activity Tracking</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background:#f4f6f8; margin:0; padding:16px; color:#243447; }
+    .container { max-width:460px; margin:0 auto; background:#fff; padding:22px; border-radius:15px; box-shadow:0 3px 14px rgba(0,0,0,.07); }
+    h2 { text-align:center; color:#17365d; margin:0 0 8px; font-size:23px; }
+    .subtitle { text-align:center; color:#687789; font-size:13px; margin-bottom:20px; }
+    label { display:block; font-weight:700; margin:14px 0 7px; font-size:14px; }
+    input, select, textarea { width:100%; padding:13px; border:1px solid #cbd2d9; border-radius:8px; background:#fff; font-size:16px; color:#243447; font-family:Arial,sans-serif; }
+    textarea { min-height:90px; resize:vertical; line-height:1.45; }
+    input[readonly] { background:#f1f3f5; font-weight:700; color:#17365d; }
+    .helper-text { display:block; color:#687789; font-size:12px; margin-top:6px; }
+    .note { background:#eef5ff; padding:11px 12px; border-radius:8px; font-size:13px; line-height:1.5; margin-top:12px; color:#29496b; }
+    .buttons { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
+    button { border:0; border-radius:8px; padding:15px 10px; color:#fff; font-size:16px; font-weight:700; cursor:pointer; min-height:50px; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    #startButton { background:#198754; } #endButton { background:#17365d; }
+    .status { padding:13px; margin-top:17px; background:#f1f3f5; border-radius:8px; text-align:center; line-height:1.5; font-size:14px; white-space:pre-line; overflow-wrap:anywhere; }
+    .success { background:#e8f5e9; color:#1b5e20; } .warning { background:#fff3cd; color:#765500; }
+    .hidden { display:none !important; }
+    .manual-row { display:flex; align-items:center; gap:8px; font-weight:400; margin-top:10px; }
+    .manual-row input { width:auto; margin:0; }
+    @media(max-width:360px) { body { padding:10px; } .container { padding:16px; } .buttons { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h2>🏭 Warehouse Activity Tracking</h2>
+    <div class="subtitle">Catat aktivitas kerja melalui START dan END</div>
+
+    <label for="customerID">Customer</label>
+    <select id="customerID">
+      <option value="">Pilih Customer</option>
+      <option value="HMS">HMS</option>
+      <option value="SFP">SFP</option>
+      <option value="PMID">PMID</option>
+      <option value="CLOVE">CLOVE</option>
+    </select>
+
+    <div id="operatorSelectWrap">
+      <label for="operatorSelect">Nama Operator</label>
+      <select id="operatorSelect" disabled><option value="">Pilih Customer terlebih dahulu</option></select>
+      <label class="manual-row" for="manualOperatorToggle">
+        <input id="manualOperatorToggle" type="checkbox">
+        Nama tidak ada di dropdown? Isi manual
+      </label>
+    </div>
+    <div id="operatorTextWrap" class="hidden">
+      <label for="operatorText">Nama Operator</label>
+      <input id="operatorText" type="text" placeholder="Ketik nama operator" autocomplete="off">
+    </div>
+
+    <label for="department">Activity / Department</label>
+    <select id="department" disabled><option value="">Pilih Customer terlebih dahulu</option></select>
+
+    <label for="activity">Sub Activity</label>
+    <select id="activity" disabled><option value="">Pilih Activity terlebih dahulu</option></select>
+
+    <label for="description">Penjelasan Sub Activity</label>
+    <textarea id="description" placeholder="Ketik penjelasan jika diperlukan..."></textarea>
+    <span class="helper-text">Optional — boleh dikosongkan.</span>
+
+    <label for="unit">Satuan</label>
+    <input id="unit" type="text" value="-" readonly aria-readonly="true">
+
+    <label for="quantity">Quantity <span style="font-weight:400;color:#687789;">(diisi saat END)</span></label>
+    <input id="quantity" type="number" min="0" step="any" placeholder="Isi quantity setelah pekerjaan selesai" inputmode="decimal">
+
+    <div class="buttons">
+      <button id="startButton" type="button">▶ START</button>
+      <button id="endButton" type="button">■ END</button>
+    </div>
+
+    <div class="note">Tekan START saat mulai bekerja. Setelah selesai, isi Quantity lalu tekan END. Quantity hanya disimpan saat END.</div>
+    <div id="status" class="status">Menghubungkan ke sistem...</div>
+  </main>
+
+  <script>
+    // Backend Apps Script milik project BACKUP - Tracking Act.
+    // URL deployment /exec yang diberikan pemilik project.
+    const API_URL = 'https://script.google.com/macros/s/AKfycbyDK7eS_cHSV8QfoHsrV4Eptjn26JT8Hyqwt3z5xDxE-nNZ70pURyvaUV2XFMPpx9xMRw/exec';
+
+    const customerEl = document.getElementById('customerID');
+    const operatorSelect = document.getElementById('operatorSelect');
+    const operatorText = document.getElementById('operatorText');
+    const operatorTextWrap = document.getElementById('operatorTextWrap');
+    const manualOperatorToggle = document.getElementById('manualOperatorToggle');
+    const operatorSelectWrap = document.getElementById('operatorSelectWrap');
+    const departmentEl = document.getElementById('department');
+    const activityEl = document.getElementById('activity');
+    const quantityEl = document.getElementById('quantity');
+    const descriptionEl = document.getElementById('description');
+    const unitEl = document.getElementById('unit');
+    const statusEl = document.getElementById('status');
+    const startButton = document.getElementById('startButton');
+    const endButton = document.getElementById('endButton');
+
+    let activityRows = [];
+    let jsonpCounter = 0;
+
+    function setStatus(message, type) {
+      statusEl.className = 'status' + (type ? ' ' + type : '');
+      statusEl.textContent = message;
+    }
+    function setBusy(busy) {
+      startButton.disabled = busy;
+      endButton.disabled = busy;
+    }
+    function resetSelect(select, placeholder) {
+      select.innerHTML = '';
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = placeholder;
+      select.appendChild(option);
+    }
+    function getUnitForCustomer(customer) {
+      const code = String(customer || '').trim().toUpperCase();
+      if (code === 'HMS' || code === 'SFP' || code.indexOf('PMID') === 0) return 'BOX';
+      if (code === 'CLOVE') return 'KARUNG';
+      return '-';
+    }
+
+    // JSONP: kompatibel dengan GitHub Pages karena request lintas domain
+    // dilakukan melalui elemen script, bukan fetch/google.script.run.
+    function callAppsScript(params) {
+      return new Promise(function(resolve, reject) {
+        const callbackName = '__watJsonp' + Date.now() + '_' + (++jsonpCounter);
+        const query = new URLSearchParams();
+        Object.keys(params).forEach(function(key) {
+          query.append(key, params[key] == null ? '' : String(params[key]));
+        });
+        query.append('callback', callbackName);
+        query.append('_', String(Date.now()));
+
+        const script = document.createElement('script');
+        let finished = false;
+        const timeout = window.setTimeout(function() {
+          finishError(new Error('Server tidak merespons. Periksa koneksi internet atau akses Web App Apps Script.'));
+        }, 25000);
+
+        function cleanup() {
+          window.clearTimeout(timeout);
+          if (script.parentNode) script.parentNode.removeChild(script);
+          try { delete window[callbackName]; } catch (e) { window[callbackName] = undefined; }
+        }
+        function finishError(error) {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          reject(error);
+        }
+
+        window[callbackName] = function(data) {
+          if (finished) return;
+          finished = true;
+          cleanup();
+          resolve(data);
+        };
+        script.onerror = function() {
+          finishError(new Error('Tidak dapat mengakses Google Apps Script. Pastikan deployment mengizinkan akses Anyone.'));
+        };
+        script.src = API_URL + '?' + query.toString();
+        document.head.appendChild(script);
+      });
+    }
+
+    function manualMode() {
+      const isClove = customerEl.value === 'CLOVE';
+      const manual = isClove || manualOperatorToggle.checked;
+      operatorTextWrap.classList.toggle('hidden', !manual);
+      operatorSelect.classList.toggle('hidden', manual);
+      operatorSelect.disabled = manual || !customerEl.value;
+      const selectLabel = operatorSelectWrap.querySelector('label[for="operatorSelect"]');
+      if (selectLabel) selectLabel.classList.toggle('hidden', manual);
+      if (manual) operatorSelect.value = '';
+      else operatorText.value = '';
+    }
+
+    async function loadCustomerData() {
+      const customer = customerEl.value;
+      unitEl.value = getUnitForCustomer(customer);
+      resetSelect(operatorSelect, 'Memuat operator...');
+      resetSelect(departmentEl, 'Memuat activity...');
+      resetSelect(activityEl, 'Pilih Activity terlebih dahulu');
+      departmentEl.disabled = true;
+      activityEl.disabled = true;
+      quantityEl.value = '';
+      descriptionEl.value = '';
+      activityRows = [];
+
+      if (!customer) {
+        resetSelect(operatorSelect, 'Pilih Customer terlebih dahulu');
+        resetSelect(departmentEl, 'Pilih Customer terlebih dahulu');
+        operatorSelect.disabled = true;
+        manualOperatorToggle.checked = false;
+        manualOperatorToggle.disabled = false;
+        manualMode();
+        setStatus('Pilih customer untuk memuat operator dan aktivitas.');
+        return;
+      }
+
+      if (customer === 'CLOVE') {
+        manualOperatorToggle.checked = true;
+        manualOperatorToggle.disabled = true;
+        operatorText.placeholder = 'Ketik nama operator CLOVE';
+        manualMode();
+      } else {
+        manualOperatorToggle.disabled = false;
+        manualOperatorToggle.checked = false;
+        operatorText.placeholder = 'Ketik nama operator';
+        manualMode();
+        try {
+          const response = await callAppsScript({api:'getMasterOperators'});
+          if (!response || !response.success) throw new Error(response && response.message ? response.message : 'Gagal membaca Master Operator.');
+          resetSelect(operatorSelect, 'Pilih Nama Operator');
+          (response.data || []).forEach(function(item) {
+            const option = document.createElement('option');
+            option.value = item.name;
+            option.textContent = item.name;
+            operatorSelect.appendChild(option);
+          });
+          operatorSelect.disabled = false;
+          manualMode();
+        } catch (error) {
+          resetSelect(operatorSelect, 'Gagal memuat operator');
+          setStatus(error.message || String(error), 'warning');
+          return;
+        }
+      }
+      await loadActivities(customer);
+    }
+
+    async function loadActivities(customer) {
+      setStatus('Memuat daftar activity...');
+      try {
+        const response = await callAppsScript({api:'getMasterActivities', customerID:customer});
+        if (!response || !response.success) throw new Error(response && response.message ? response.message : 'Gagal membaca Master Activity.');
+        activityRows = response.data || [];
+        resetSelect(departmentEl, 'Pilih Activity');
+        const departments = [...new Set(activityRows.map(function(item) { return item.department; }))];
+        departments.forEach(function(dept) {
+          const option = document.createElement('option');
+          option.value = dept;
+          option.textContent = dept;
+          departmentEl.appendChild(option);
+        });
+        departmentEl.disabled = false;
+        resetSelect(activityEl, 'Pilih Activity terlebih dahulu');
+        activityEl.disabled = true;
+        setStatus('Data berhasil dimuat. Silakan pilih aktivitas.', 'success');
+      } catch (error) {
+        setStatus(error.message || String(error), 'warning');
+      }
+    }
+
+    customerEl.addEventListener('change', loadCustomerData);
+    manualOperatorToggle.addEventListener('change', manualMode);
+
+    departmentEl.addEventListener('change', function() {
+      resetSelect(activityEl, 'Pilih Sub Activity');
+      const selectedDepartment = departmentEl.value;
+      activityRows.filter(function(item) { return item.department === selectedDepartment; }).forEach(function(item) {
+        const option = document.createElement('option');
+        option.value = item.activity;
+        option.textContent = item.activity;
+        activityEl.appendChild(option);
+      });
+      activityEl.disabled = !selectedDepartment;
+    });
+
+    async function submitActivity(action) {
+      const customerID = customerEl.value;
+      const operator = (customerID === 'CLOVE' || manualOperatorToggle.checked)
+        ? operatorText.value.trim()
+        : operatorSelect.value;
+      const department = departmentEl.value;
+      const activity = activityEl.value;
+      const quantity = quantityEl.value.trim();
+      const description = descriptionEl.value.trim();
+
+      if (!customerID) return setStatus('Pilih Customer terlebih dahulu.', 'warning');
+      if (!operator) return setStatus('Pilih atau isi nama operator terlebih dahulu.', 'warning');
+      if (!department) return setStatus('Pilih Activity / Department terlebih dahulu.', 'warning');
+      if (!activity) return setStatus('Pilih Sub Activity terlebih dahulu.', 'warning');
+      if (action === 'END' && (quantity === '' || !Number.isFinite(Number(quantity)) || Number(quantity) < 0)) {
+        quantityEl.focus();
+        return setStatus('Isi Quantity dengan angka nol atau lebih sebelum menekan END.', 'warning');
+      }
+
+      setBusy(true);
+      setStatus(action === 'START' ? 'Memproses START...' : 'Memproses END...');
+      try {
+        const result = await callAppsScript({
+          api:'processScan',
+          operator:operator,
+          customerID:customerID,
+          department:department,
+          activity:activity,
+          description:description,
+          quantity:action === 'END' ? quantity : '',
+          action:action
+        });
+        setBusy(false);
+        if (!result || !result.success) {
+          setStatus(result && result.message ? result.message : 'Permintaan gagal diproses.', 'warning');
+          return;
+        }
+        if (result.type === 'START') {
+          quantityEl.value = '';
+          setStatus(
+            'START BERHASIL\nActivity: ' + department +
+            '\nSub Activity: ' + activity +
+            '\nSatuan: ' + (result.unit || unitEl.value) +
+            '\nTracking ID: ' + (result.trackingID || '-') +
+            '\nTransaction ID: ' + (result.transactionID || '-') +
+            '\nWaktu mulai: ' + (result.startTime || ''), 'success'
+          );
+        } else if (result.type === 'FINISH') {
+          setStatus(
+            'END BERHASIL\nActivity: ' + department +
+            '\nSub Activity: ' + activity +
+            '\nDurasi: ' + (result.duration || '-') +
+            '\nQuantity: ' + (result.quantity ?? quantity) + ' ' + (result.unit || unitEl.value) +
+            '\nTracking ID: ' + (result.trackingID || '-'), 'success'
+          );
+          quantityEl.value = '';
+        }
+      } catch (error) {
+        setBusy(false);
+        setStatus(error.message || String(error), 'warning');
+      }
+    }
+
+    startButton.addEventListener('click', function() { submitActivity('START'); });
+    endButton.addEventListener('click', function() { submitActivity('END'); });
+
+    // Tes koneksi ringan dengan memuat daftar operator saat customer dipilih.
+    setStatus('Siap. Pilih Customer untuk memuat data dari Google Sheets.');
+  </script>
+</body>
+</html>
